@@ -19,6 +19,7 @@ void tpool_wait(tpool_t *tm);
 
 #endif /* __TPOOL_H__ */
 
+static const size_t num_threads = 10;
 
 struct tpool_work {
     thread_func_t      func;
@@ -29,6 +30,7 @@ struct tpool_work {
 typedef struct tpool_work tpool_work_t;
 
 struct tpool {
+    pthread_attr_t attr;
     tpool_work_t    *work_first;
     tpool_work_t    *work_last;
     pthread_mutex_t  work_mutex;
@@ -45,7 +47,7 @@ static tpool_work_t *tpool_work_create(thread_func_t func, void *arg){
     if (func == NULL)
         return NULL;
 
-    work       = malloc(sizeof(*work));
+    work       = malloc(sizeof(*work));             //EDIT
     work->func = func;
     work->arg  = arg;
     work->next = NULL;
@@ -70,7 +72,7 @@ static tpool_work_t *tpool_work_get(tpool_t *tm){
     if (work == NULL)
         return NULL;
 
-    if (work->next == NULL) {
+    if (work->next == NULL) {                   //if there is no work left set both pointers to null 
         tm->work_first = NULL;
         tm->work_last  = NULL;
     } else {
@@ -80,20 +82,23 @@ static tpool_work_t *tpool_work_get(tpool_t *tm){
     return work;
 }
 
-static void *tpool_worker(void *arg){
+static void *tpool_worker(void *arg){       //Function used on thread creation
     tpool_t      *tm = arg;
     tpool_work_t *work;
 
-    while (1) {
-        pthread_mutex_lock(&(tm->work_mutex));//lock thread
+    while (1) {                                    //we keep a certain number of threads alive this way unlees we signal the pool to stop
 
-        while (tm->work_first == NULL && !tm->stop)
-            pthread_cond_wait(&(tm->work_cond), &(tm->work_mutex));
 
-        if (tm->stop)
+        pthread_mutex_lock(&(tm->work_mutex));      //all threads without work wait until the first one in that queue gets work
+
+        while (tm->work_first == NULL && !tm->stop)                 //if there is no work and if we have not stopped the pool
+
+            pthread_cond_wait(&(tm->work_cond), &(tm->work_mutex)); //the thread waits for available work
+
+        if (tm->stop)                                               //if the pool stops the thread break from endless loop and reduce the working count
             break;
 
-        work = tpool_work_get(tm);
+        work = tpool_work_get(tm);                                  //get the first in the work queue or null if nothing exists
         tm->working_cnt++;
         pthread_mutex_unlock(&(tm->work_mutex));
 
@@ -110,9 +115,11 @@ static void *tpool_worker(void *arg){
     }
 
     tm->thread_cnt--;
-    pthread_cond_signal(&(tm->working_cond));
+
+    pthread_cond_signal(&(tm->working_cond));                       //if the thread breaks from the loop unlock the mutex so the next can break from the queue
     pthread_mutex_unlock(&(tm->work_mutex));
-    return NULL;
+
+    return NULL;                                                    //since the thread is detached from the start when it reaches this point it releases all it's resources
 }
 
 
@@ -136,13 +143,14 @@ bool tpool_add_work(tpool_t *tm, thread_func_t func, void *arg){
         tm->work_last       = work;
     }
 
-    pthread_cond_broadcast(&(tm->work_cond));
-    pthread_mutex_unlock(&(tm->work_mutex));
+    pthread_cond_broadcast(&(tm->work_cond));                       //call to all the threads that work is available
+
+    pthread_mutex_unlock(&(tm->work_mutex));                        //let first thread in our queue get the the work that was added
 
     return true;
 }
 
-tpool_t *tpool_create(size_t num){
+tpool_t *tpool_create(size_t num){              //Create thread pool
     tpool_t   *tm;
     pthread_t  thread;
     size_t     i;
@@ -150,25 +158,42 @@ tpool_t *tpool_create(size_t num){
     if (num == 0)
         num = 2;
 
-    tm             = calloc(1, sizeof(*tm));  //TODO its scientifically malloc
+    tm             = malloc( sizeof(*tm));  //TODO its scientifically calloc
     tm->thread_cnt = num;
 
-    pthread_mutex_init(&(tm->work_mutex), NULL);
+    pthread_mutex_init(&(tm->work_mutex), NULL);            
     pthread_cond_init(&(tm->work_cond), NULL);
     pthread_cond_init(&(tm->working_cond), NULL);
 
     tm->work_first = NULL;
     tm->work_last  = NULL;
 
+    pthread_attr_setschedpolicy(&(tm->attr), SCHED_RR);           //set schedule police SCHED_FIFO is FIFO, SCHED_RR is for Round Robin
+                                                    //When threads executing with the scheduling policy SCHED_FIFO, SCHED_RR, or SCHED_SPORADIC 
+                                                    // are waiting on a mutex, they shall acquire the mutex in priority order when the mutex is unlocked.
+                                                    // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_attr_setschedpolicy.html
+
     for (i=0; i<num; i++) {
-        pthread_create(&thread, NULL, tpool_worker, tm);
+        pthread_create(&thread, &(tm->attr), tpool_worker, tm);
         pthread_detach(thread);
     }
+
 
     return tm;
 }
 
-void tpool_destroy(tpool_t *tm){
+void tpool_add_threads(tpool_t *tm, size_t num){        //ADDITION unstable don't use it
+
+    pthread_t thread;
+
+    for (int i = 0; i < num; ++i) {
+        pthread_create(&thread, NULL, tpool_worker, tm);
+        pthread_detach(thread);        
+    }
+
+}
+
+void tpool_destroy(tpool_t *tm){            //Destroy thread pool
     tpool_work_t *work;
     tpool_work_t *work2;
 
