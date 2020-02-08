@@ -8,21 +8,16 @@
 static const size_t num_threads = 4;
 static const size_t num_items   = 100;
 
-void worker(void *arg, tpool_t *tm)
+void worker(void *arg)
 {
     int *val = arg;
     int  old = *val;
-
-    pthread_mutex_lock(&(tm->work_mutex));
-
 
     *val += 1000;
     printf("tid=%p, old=%d, val=%d\n", pthread_self(), old, *val);
 
     if (*val%2)
         usleep(100000);
-
-    pthread_mutex_unlock(&(tm->work_mutex));
 
 }
 
