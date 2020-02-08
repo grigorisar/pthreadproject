@@ -21,8 +21,8 @@ void tpool_wait(tpool_t *tm);
 #endif /* __TPOOL_H__ */
 
 static const bool manytomany_flag = false;
-static const bool manytoone_flag = true;
-static const bool onetoone_flag = false;
+static const bool manytoone_flag = false;
+static const bool onetoone_flag = true;
 //ONE TO ONE OBFUSCATED
 
 
@@ -99,9 +99,11 @@ static void *tpool_worker(void *arg)
         pthread_mutex_lock(&(tm->work_mutex));      //all threads without work wait until the first one in that queue gets work
 
 
+
         while (tm->work_first == NULL && !tm->stop)                 //if there is no work and if we have not stopped the pool
 
-            pthread_cond_wait(&(tm->work_cond), &(tm->work_mutex)); //the thread waits for available work
+        pthread_cond_wait(&(tm->work_cond), &(tm->work_mutex)); //the thread waits for available work
+
 
         if (tm->stop)                                               //if the pool stops the thread break from endless loop and reduce the working count
             break;
@@ -193,7 +195,7 @@ tpool_t *tpool_create(size_t num){              //Create thread pool
         }
      }else{
         pthread_create(&thread, &(tm->attr), tpool_worker, tm);
-        pthread_join(thread,NULL);
+        pthread_join(pthread_self(),NULL);
      }
  
     return tm;
@@ -243,13 +245,16 @@ void tpool_wait(tpool_t *tm)
     if (tm == NULL)
         return;
 
-    pthread_mutex_lock(&(tm->work_mutex));
-    while (1) {
-        if ((!tm->stop && tm->working_cnt != 0) || (tm->stop && tm->thread_cnt != 0)) {
-            pthread_cond_wait(&(tm->working_cond), &(tm->work_mutex));
-        } else {
-            break;
+    if (!onetoone_flag) {
+        pthread_mutex_lock(&(tm->work_mutex));
+        while (1) {
+            if ((!tm->stop && tm->working_cnt != 0) || (tm->stop && tm->thread_cnt != 0)) {
+                pthread_cond_wait(&(tm->working_cond), &(tm->work_mutex));
+            } else {
+                break;
+            }
         }
-    }
-    pthread_mutex_unlock(&(tm->work_mutex));
+        pthread_mutex_unlock(&(tm->work_mutex));
+    } else return;
+    
 }
