@@ -35,7 +35,7 @@ struct tpool_work {
 typedef struct tpool_work tpool_work_t;
 
 struct tpool {
-    pthread_attr_t attr;
+    pthread_attr_t   attr;
     tpool_work_t    *work_first;
     tpool_work_t    *work_last;
     pthread_mutex_t  work_mutex;
@@ -96,7 +96,7 @@ static void *tpool_worker(void *arg)
 
 
         // printf("Waiting for work, thread: %p\n", pthread_self());
-        pthread_mutex_lock(&(tm->work_mutex));      //all threads without work wait until the first one in that queue gets work
+        pthread_mutex_lock(&(tm->work_mutex));      //all threads without work wait until a thread in that queue gets work
 
 
 
@@ -109,7 +109,7 @@ static void *tpool_worker(void *arg)
             break;
 
         work = tpool_work_get(tm);                                  //get the first in the work queue or null if nothing exists
-
+        // timer.start(2000us)
         // while (tm->working_cnt > 0 );
 
         tm->working_cnt++;
@@ -188,16 +188,11 @@ tpool_t *tpool_create(size_t num){              //Create thread pool
                                                     //When threads executing with the scheduling policy SCHED_FIFO, SCHED_RR, or SCHED_SPORADIC 
                                                     // are waiting on a mutex, they shall acquire the mutex in priority order when the mutex is unlocked.
                                                     // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_attr_setschedpolicy.html
-     if (!onetoone_flag){
-        for (i=0; i<num; i++) {
-            pthread_create(&thread, &(tm->attr), tpool_worker, tm);
-            pthread_detach(thread);
-        }
-     }else{
+    for (i=0; i<num; i++) {
         pthread_create(&thread, &(tm->attr), tpool_worker, tm);
-        pthread_join(pthread_self(),NULL);
-     }
- 
+        pthread_detach(thread);
+        if (onetoone_flag) break;
+    }
     return tm;
 }
 
@@ -242,19 +237,16 @@ void tpool_destroy(tpool_t *tm){            //Destroy thread pool
 
 void tpool_wait(tpool_t *tm)
 {
-    if (tm == NULL)
+    if (tm == NULL || onetoone_flag)
         return;
 
-    if (!onetoone_flag) {
-        pthread_mutex_lock(&(tm->work_mutex));
-        while (1) {
-            if ((!tm->stop && tm->working_cnt != 0) || (tm->stop && tm->thread_cnt != 0)) {
-                pthread_cond_wait(&(tm->working_cond), &(tm->work_mutex));
-            } else {
-                break;
-            }
+    pthread_mutex_lock(&(tm->work_mutex));
+    while (1) {
+        if ((!tm->stop && tm->working_cnt != 0) || (tm->stop && tm->thread_cnt != 0)) {
+            pthread_cond_wait(&(tm->working_cond), &(tm->work_mutex));
+        } else {
+            break;
         }
-        pthread_mutex_unlock(&(tm->work_mutex));
-    } else return;
-    
+    }
+    pthread_mutex_unlock(&(tm->work_mutex));    
 }
