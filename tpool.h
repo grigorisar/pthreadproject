@@ -87,8 +87,7 @@ static tpool_work_t *tpool_work_get(tpool_t *tm){
     return work;
 }
 
-static void *tpool_worker(void *arg)
-{
+static void *tpool_worker(void *arg) {
     tpool_t      *tm = arg;
     tpool_work_t *work;
 
@@ -178,16 +177,19 @@ tpool_t *tpool_create(size_t num){              //Create thread pool
         num = 2;
 
     tm             = malloc( sizeof(*tm));  //TODO its scientifically calloc
+
+    if (tm == NULL) return NULL;
+
     tm->thread_cnt = num;
 
     pthread_mutex_init(&(tm->work_mutex), NULL);            
     pthread_cond_init(&(tm->work_cond), NULL);
-    pthread_cond_init(&(tm->working_cond), NULL);
+    pthread_cond_init(&(tm->working_cond), NULL);                   //SHCHED
 
     tm->work_first = NULL;
-    tm->work_last  = NULL;
+    tm->work_last  = NULL;                                      
 
-    pthread_attr_setschedpolicy(&(tm->attr), SCHED_RR);           //set schedule police SCHED_FIFO is FIFO, SCHED_RR is for Round Robin
+    pthread_attr_setschedpolicy(&(tm->attr), SCHED_FIFO);           //set schedule police SCHED_FIFO is FIFO, SCHED_RR is for Round Robin
                                                     //When threads executing with the scheduling policy SCHED_FIFO, SCHED_RR, or SCHED_SPORADIC 
                                                     // are waiting on a mutex, they shall acquire the mutex in priority order when the mutex is unlocked.
                                                     // https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_attr_setschedpolicy.html
@@ -243,8 +245,7 @@ void tpool_destroy(tpool_t *tm){            //Destroy thread pool
     free(tm);
 }
 
-void tpool_wait(tpool_t *tm)
-{
+void tpool_wait(tpool_t *tm) {
     if (tm == NULL)
         return;
 
